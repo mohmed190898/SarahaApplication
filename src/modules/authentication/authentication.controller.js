@@ -9,7 +9,6 @@ const router = Router();
 
 
 router.post("/signup", validation(validators.signupSchema), async (req, res, next) => {
-    
     const data = await signup(req.validate.body)
     return successResponse({ res, status: 201, data })
 })

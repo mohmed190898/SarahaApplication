@@ -46,7 +46,7 @@ export const generateLimiter = ({
                     }
                     cb(null, count)
                 } catch (error) {
-                    cb(err)
+                    cb(error)
                 }
             },
             async decrement(key) {

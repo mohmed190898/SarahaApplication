@@ -1,9 +1,9 @@
 import { ConflictException, NotFoundException, TooManyRequestsException } from "../../common/exception/error.exception.js"
-import { create, findOne } from "../../common/repository/base.repository.js"
+import { create, createOne, findOne } from "../../common/repository/base.repository.js"
 import { decryption, encryption } from "../../common/security/encryption.security.js"
 import { compare, hash } from "../../common/security/index.js"
 import { UserModel } from "../../DB/model/index.js"
-import { createLoginCredentials, createToken, userBaseRevokeTokenKey } from "../../common/security/token.security.js"
+import { createLoginCredentials, userBaseRevokeTokenKey } from "../../common/security/token.security.js"
 import { WEB_CLIENT_IDS } from "../../config.js"
 
 import { OAuth2Client } from 'google-auth-library';
@@ -25,6 +25,7 @@ async function verifyGoogleAccount(idToken) {
 }
 // 
 const sendEmailOtp = async ({ email, subject, expiresIn = 120, maxTrials = 3, blockInSeconds = 300 }) => {
+
     const existOtp_TTL = await ttl({ key: UserEmailHashedKey({ email, subject }) })
     if (existOtp_TTL > 0) {
         throw ConflictException(`cannot send otp as the old one still alive and expires after ${existOtp_TTL}`)
@@ -54,13 +55,15 @@ const sendEmailOtp = async ({ email, subject, expiresIn = 120, maxTrials = 3, bl
         data: { code }
     })
 }
+
+
 export const requestForgotPasswordCode = async ({ email }) => {
     // check if the account exist 
     const account = await findOne({
         filter: {
             email,
             provide: ProviderEnum.SYSTEM,
-            confirmEmail: { $exists: true }
+            confirmationMail: { $exists: true }
         },
         model: UserModel,
     })
@@ -76,7 +79,7 @@ export const verifyForogotPassword = async ({ email, otp }) => {
         filter: {
             email,
             provide: ProviderEnum.SYSTEM,
-            confirmEmail: { $exists: true }
+            confirmationMail: { $exists: true }
         },
         model: UserModel,
     })
@@ -94,10 +97,7 @@ export const verifyForogotPassword = async ({ email, otp }) => {
     if (!hashOtp || ! await compare(otp, hashOtp)) {
         throw ConflictException("Invalid Otp")
     }
-    // account.confirmEmail = new Date();
-    // await account.save();
-    // await del({ key: otpKey })
-    // await del({ key: UserEmailHashedKey({ email, subject: EmailSubjectEnum.CONFIRM_EMAIL }) })
+
     return account
 }
 export const resetPassword = async ({ email, otp, password }) => {
@@ -121,7 +121,7 @@ export const confirmEmail = async ({ otp, email }) => {
         filter: {
             email,
             provide: ProviderEnum.SYSTEM,
-            confirmEmail: { $exists: false }
+            confirmationMail: { $exists: false }
         },
         model: UserModel,
     })
@@ -139,7 +139,7 @@ export const confirmEmail = async ({ otp, email }) => {
     if (!hashOtp || ! await compare(otp, hashOtp)) {
         throw ConflictException("Invalid Otp")
     }
-    account.confirmEmail = new Date();
+    account.confirmationMail = new Date();
     await account.save();
 
     // await del({ keys: otpKey })
@@ -150,16 +150,18 @@ export const confirmEmail = async ({ otp, email }) => {
 }
 export const resendConfirmEmail = async ({ email }) => {
     // check if the account exist 
+
     const account = await findOne({
         filter: {
             email,
             provide: ProviderEnum.SYSTEM,
-            confirmEmail: { $exists: false }
+            confirmationMail: { $exists: false }
         },
         model: UserModel,
     })
+
     if (!account) {
-        throw NotFoundException("Invalid Account")
+        throw NotFoundException({ message: "Invalid Account Or confirmed Email Already" })
     }
     await sendEmailOtp({ email, subject: EmailSubjectEnum.CONFIRM_EMAIL })
     return
@@ -197,7 +199,7 @@ export const signup = async ({ email, password, username, phone }) => {
     if (duplicatedAccount)
         throw ConflictException("Email Exist")
     // if the account not exist create new user and create OTP
-    const newUserAccount = await create({
+    const newUserAccount = await createOne({
         model: UserModel,
         data: {
             email,
@@ -207,17 +209,17 @@ export const signup = async ({ email, password, username, phone }) => {
         }
     })
     // create random number As OTP
-    sendEmailOtp();
+    await sendEmailOtp({ email, subject: EmailSubjectEnum.CONFIRM_EMAIL });
     return newUserAccount
 }
 export const login = async ({ email, password }, issuer) => {
     const account = await findOne({
-        filter: { email, provider: ProviderEnum.SYSTEM, confrimEmail: { $exists: true } },
+        filter: { email, provider: ProviderEnum.SYSTEM, confirmationMail: { $exists: true } },
         model: UserModel,
     })
-    if (!account) throw NotFoundException("In-Valid User Credentials")
+    if (!account) throw NotFoundException({ message: "In-Valid User Credentials" })
     const match = await compare(password, account.password)
-    if (!match) throw NotFoundException("In-Valid User Credentials")
+    if (!match) throw NotFoundException({ message: "In-Valid User Credentials" })
     account.phone = await decryption(account.phone)
 
     // create otp and send confiramtion email

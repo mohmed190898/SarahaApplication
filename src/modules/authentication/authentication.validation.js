@@ -23,12 +23,18 @@ export const signupSchema = (lang) => {
             confirmPassword: generalValidation.password(lang)
         })
     }).superRefine((data, ctx) => {
-        generalValidation.matchFileds({ original: "password", copy: "confirmPassword", data, ctx, lang })
+        generalValidation.matchFileds({
+            original: "password",
+            copy: "confirmPassword",
+            data: data.body,
+            ctx,
+            lang
+        })
 
         if (!data.body.username.includes(" ")) {
             ctx.addIssue({
                 code: "custom",
-                path: ['username'],
+                path: ["body", "username"],
                 message: "username must contain 2 parts "
             })
         }
